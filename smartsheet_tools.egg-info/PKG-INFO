@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: smartsheet_tools
+Version: 0.0.2
+Summary: A collection of convenience functions to aid with transitioning from simple-smartsheet to the SDK API and common tasks
+Author: Ashton Pooley
+Author-email: Ashton Pooley <ashton@ashi.digital>
+License-Expression: GPL-3.0-or-later
+Project-URL: Homepage, https://github.com/AshtonPooley/smartsheet_tools/SAPPHYRE
+Project-URL: Repository, https://github.com/AshtonPooley/smartsheet_tools/SAPPHYRE
+Project-URL: Issues, https://github.com/AshtonPooley/smartsheet_tools/SAPPHYRE/issues
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: smartsheet-python-sdk>=3.1.0
+Dynamic: author
+Dynamic: license-file
+
+A collection of convenience functions to aid with transitioning from simple-smartsheet to the SDK API and common tasks
