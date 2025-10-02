@@ -1,6 +1,6 @@
 from datetime import datetime
 import re
-from smartsheet.models import Cell, Row
+from smartsheet.models import Cell, Row, Folder, Sheet
 
 # Cache for column types to minimize API calls when correcting date formats
 _COLUMN_TYPE_CACHE = {}
@@ -107,3 +107,33 @@ def new_row(cells=None, id=None, parent_id=None, to_top=False):
     if to_top:
         new_row.to_top = to_top
     return new_row
+
+def walk_folder_for_sheets(smartsheet_client, folder_id):
+    for item in smartsheet_client.Folders.get_folder_children(folder_id).data:
+        if isinstance(item, Folder):
+            yield from walk_folder_for_sheets(smartsheet_client, item.id)
+        elif isinstance(item, Sheet):
+            yield item
+
+def walk_workspace_for_sheets(smartsheet_client, workspace_id):
+    for item in smartsheet_client.Workspaces.get_workspace_children(workspace_id).data:
+        if isinstance(item, Folder):
+            yield from walk_folder_for_sheets(smartsheet_client, item.id)
+        elif isinstance(item, Sheet):
+            yield item
+            
+def walk_folder_for_folders(smartsheet_client, folder_id):
+    for item in smartsheet_client.Folders.get_folder_children(folder_id).data:
+        if isinstance(item, Folder):
+            yield item
+            yield from walk_folder_for_folders(smartsheet_client, item.id)
+            
+def walk_workspace_for_folders(smartsheet_client, workspace_id):
+    for item in smartsheet_client.Workspaces.get_workspace_children(workspace_id).data:
+        if isinstance(item, Folder):
+            yield item
+            yield from walk_folder_for_folders(smartsheet_client, item.id)
+            
+def walk_sheet_names_from_workspace(smartsheet_client, workspace_id):
+    for sheet in walk_workspace_for_sheets(smartsheet_client, workspace_id):
+        yield sheet.name
