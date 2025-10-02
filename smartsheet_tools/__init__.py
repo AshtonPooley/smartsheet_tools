@@ -45,10 +45,12 @@ def new_cell(column_id, value=None, strict=False, formula=None):
         new_cell.strict = True
     return new_cell
 
-def new_row(cells=None, parent_id=None, to_top=False):
+def new_row(cells=None, id=None, parent_id=None, to_top=False):
     new_row = Row()
     if cells:
         new_row.cells = cells
+    if id:
+        new_row.id = id
     if parent_id:
         new_row.parent_id = parent_id
     if to_top:
