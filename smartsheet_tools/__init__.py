@@ -57,6 +57,16 @@ def get_cached_column_type(column_id, sheet_obj):
     
     return _COLUMN_TYPE_CACHE[sheet_obj.id][column_id]
 
+def brute_force_date_string(s):
+    # attempt to parse a date string in common formats to ISO 8601
+    s = s.split(" ")[0]
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return datetime_to_isoformat(datetime.strptime(s, fmt))
+        except ValueError:
+            continue
+    return None
+
 def is_date_col(column_id, sheet_obj):
     column_type = get_cached_column_type(column_id, sheet_obj)
     return column_type in ("DATE", "DATETIME")
