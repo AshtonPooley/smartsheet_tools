@@ -62,6 +62,9 @@ def get_col_names_of_date_cols(sheet_obj):
 
 def brute_force_date_string(s):
     # attempt to parse a date string in common formats to ISO 8601
+    if isinstance(s, datetime):
+        return datetime_to_isoformat(s)
+    
     s = s.split(" ")[0]
     for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
         try:
