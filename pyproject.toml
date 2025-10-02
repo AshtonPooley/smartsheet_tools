@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smartsheet_tools"                       # from setup.py
+version = "0.0.1"                       # from setup.py
+description = "A collection of convenience functions to aid with transitioning from simple-smartsheet to the SDK API and common tasks"
+readme = "README.md"
+requires-python = ">=3.9"               # matches classifiers (3.9–3.12)
+license = "GPL-3.0-or-later"
+license-files = [
+    "LICENSE"
+]
+authors = [
+  { name = "Ashton Pooley", email = "ashton@ashi.digital" },   # author
+]
+
+dependencies = [
+    "smartsheet-python-sdk>=3.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/AshtonPooley/smartsheet_tools/SAPPHYRE"
+Repository = "https://github.com/AshtonPooley/smartsheet_tools/SAPPHYRE"
+Issues = "https://github.com/AshtonPooley/smartsheet_tools/SAPPHYRE/issues"
