@@ -2,6 +2,9 @@ from datetime import datetime
 import re
 from smartsheet.models import Cell, Row
 
+# Cache for column types to minimize API calls when correcting date formats
+_COLUMN_TYPE_CACHE = {}
+
 def norm(v):
     if v is None:
         return ""
@@ -38,12 +41,29 @@ def guard_row(row, *idxs):
 def datetime_to_isoformat(dt):
     if dt is None:
         return None
-    return dt.replace(microsecond=0).isoformat()
+    return dt.replace(microsecond=0).isoformat() + 'Z'
 
 def standard_time_to_isoformat(st):
     if st is None:
         return None
     return datetime_to_isoformat(datetime.strptime(st, "%m/%d/%Y"))
+
+def correct_date_format(isoformat_datetime, column_id, sheet_obj):
+    if isinstance(isoformat_datetime, datetime):
+        isoformat_datetime = datetime_to_isoformat(isoformat_datetime)
+    
+    if sheet_obj.id not in _COLUMN_TYPE_CACHE:
+        _COLUMN_TYPE_CACHE[sheet_obj.id] = {}
+        
+    if column_id not in _COLUMN_TYPE_CACHE[sheet_obj.id]:
+        _COLUMN_TYPE_CACHE[sheet_obj.id][column_id] = str(sheet_obj.get_column(column_id).type)
+
+    column_type = _COLUMN_TYPE_CACHE[sheet_obj.id][column_id]
+    if column_type == "DATE":
+        return isoformat_datetime.split("T",1)[0]
+    elif column_type == "DATETIME":
+        return isoformat_datetime
+    return None
 
 def new_cell(column_id, value=None, strict=False, formula=None):
     new_cell = Cell()
