@@ -60,13 +60,10 @@ def get_cached_column_type(column_id, sheet_obj):
 def get_col_names_of_date_cols(sheet_obj):
     return [c.title for c in sheet_obj.columns if get_cached_column_type(c.id, sheet_obj) in ("DATE", "DATETIME")]
 
-def brute_force_date_string(s, nonetype_if_fail=False):
+def brute_force_date_string(s):
     # attempt to parse a date string in common formats to ISO 8601
     if isinstance(s, datetime):
         return datetime_to_isoformat(s)
-    
-    if not isinstance(s, str):
-        return None if nonetype_if_fail else s
     
     s = s.split(" ")[0]
     for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
@@ -74,7 +71,7 @@ def brute_force_date_string(s, nonetype_if_fail=False):
             return datetime_to_isoformat(datetime.strptime(s, fmt))
         except ValueError:
             continue
-    return None if nonetype_if_fail else s
+    return None
 
 def is_date_col(column_id, sheet_obj):
     column_type = get_cached_column_type(column_id, sheet_obj)
