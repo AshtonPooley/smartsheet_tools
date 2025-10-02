@@ -1,3 +1,4 @@
+from datetime import datetime
 import re
 from smartsheet.models import Cell, Row
 
@@ -33,6 +34,16 @@ def title_to_id(sheet):
 def guard_row(row, *idxs):
     # ensure row has enough cells for all requested positions
     return max(idxs) < len(row.cells)
+
+def datetime_to_isoformat(dt):
+    if dt is None:
+        return None
+    return dt.replace(microsecond=0).isoformat()
+
+def standard_time_to_isoformat(st):
+    if st is None:
+        return None
+    return datetime_to_isoformat(datetime.strptime(st, "%m/%d/%Y"))
 
 def new_cell(column_id, value=None, strict=False, formula=None):
     new_cell = Cell()
