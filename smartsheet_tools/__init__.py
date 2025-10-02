@@ -48,17 +48,24 @@ def standard_time_to_isoformat(st):
         return None
     return datetime_to_isoformat(datetime.strptime(st, "%m/%d/%Y"))
 
-def correct_date_format(isoformat_datetime, column_id, sheet_obj):
-    if isinstance(isoformat_datetime, datetime):
-        isoformat_datetime = datetime_to_isoformat(isoformat_datetime)
-    
+def get_cached_column_type(column_id, sheet_obj):
     if sheet_obj.id not in _COLUMN_TYPE_CACHE:
         _COLUMN_TYPE_CACHE[sheet_obj.id] = {}
         
     if column_id not in _COLUMN_TYPE_CACHE[sheet_obj.id]:
         _COLUMN_TYPE_CACHE[sheet_obj.id][column_id] = str(sheet_obj.get_column(column_id).type)
+    
+    return _COLUMN_TYPE_CACHE[sheet_obj.id][column_id]
 
-    column_type = _COLUMN_TYPE_CACHE[sheet_obj.id][column_id]
+def is_date_col(column_id, sheet_obj):
+    column_type = get_cached_column_type(column_id, sheet_obj)
+    return column_type in ("DATE", "DATETIME")
+
+def correct_date_format(isoformat_datetime, column_id, sheet_obj):
+    if isinstance(isoformat_datetime, datetime):
+        isoformat_datetime = datetime_to_isoformat(isoformat_datetime)
+
+    column_type = get_cached_column_type(column_id, sheet_obj)
     if column_type == "DATE":
         return isoformat_datetime.split("T",1)[0]
     elif column_type == "DATETIME":
