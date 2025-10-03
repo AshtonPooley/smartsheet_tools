@@ -92,9 +92,10 @@ def correct_date_format(isoformat_datetime, column_id, sheet_obj):
         return isoformat_datetime
     return None
 
-def new_cell(column_id, value=None, strict=False, formula=None):
+def new_cell(column_id=None, value=None, strict=False, formula=None):
     new_cell = Cell()
-    new_cell.column_id = column_id
+    if column_id is not None:
+        new_cell.column_id = column_id
     if formula is not None:
         new_cell.formula = formula
     else:
@@ -103,7 +104,7 @@ def new_cell(column_id, value=None, strict=False, formula=None):
         new_cell.strict = True
     return new_cell
 
-def new_row(cells=None, id=None, parent_id=None, to_top=False):
+def new_row(cells=None, id=None, parent_id=None, to_top=False, locked=False):
     new_row = Row()
     if cells:
         new_row.cells = cells
@@ -113,6 +114,8 @@ def new_row(cells=None, id=None, parent_id=None, to_top=False):
         new_row.parent_id = parent_id
     if to_top:
         new_row.to_top = to_top
+    if locked:
+        new_row.locked = locked
     return new_row
 
 def walk_folder_for_sheets(smartsheet_client, folder_id):
