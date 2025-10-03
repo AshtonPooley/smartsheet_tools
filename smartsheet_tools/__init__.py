@@ -1,9 +1,12 @@
 from datetime import datetime
 import re
 from smartsheet.models import Cell, Row, Folder, Sheet
+from smartsheet.models import Column
 
 # Cache for column types to minimize API calls when correcting date formats
 _COLUMN_TYPE_CACHE = {}
+_TITLE_TO_ID_CACHE = {}
+_ID_TO_INDEX_CACHE = {}
 
 def norm(v):
     if v is None:
@@ -18,11 +21,15 @@ def disp_or_val(cell):
 
 def title_to_index(sheet):
     # authoritative positions from Smartsheet (not Python enumerate order)
-    return {c.title: c.index for c in sheet.columns}
+    if sheet.id not in _TITLE_TO_ID_CACHE:
+        _TITLE_TO_ID_CACHE[sheet.id] = {c.title: c.index for c in sheet.columns}
+    return _TITLE_TO_ID_CACHE[sheet.id]
 
 def index_to_id(sheet):
     # authoritative positions from Smartsheet (not Python enumerate order)
-    return {c.index: c.id for c in sheet.columns}
+    if sheet.id not in _ID_TO_INDEX_CACHE:
+        _ID_TO_INDEX_CACHE[sheet.id] = {c.index: c.id for c in sheet.columns}
+    return _ID_TO_INDEX_CACHE[sheet.id]
 
 def id_to_index(sheet):
     # authoritative positions from Smartsheet (not Python enumerate order)
@@ -147,3 +154,24 @@ def walk_workspace_for_folders(smartsheet_client, workspace_id):
 def walk_sheet_names_from_workspace(smartsheet_client, workspace_id):
     for sheet in walk_workspace_for_sheets(smartsheet_client, workspace_id):
         yield sheet.name
+        
+def new_column(column_type, title, index=None, id=None, options=None, symbol=None, primary=False, hidden=False, locked=False):
+    new_column = Column()
+    
+    new_column.type = column_type
+    new_column.title = title
+    if index is not None:
+        new_column.index = index
+    if id is not None:
+        new_column.id = id
+    if options is not None and column_type in ("PICKLIST", "MULTI_PICKLIST"):
+        new_column.options = options
+    if symbol is not None and column_type == "CHECKBOX":
+        new_column.symbol = symbol
+    if primary:
+        new_column.primary = True
+    if hidden:
+        new_column.hidden = True
+    if locked:
+        new_column.locked = True
+    return new_column
