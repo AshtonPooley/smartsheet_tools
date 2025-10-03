@@ -107,8 +107,7 @@ def new_cell(column_id=None, value=None, strict=False, formula=None):
         new_cell.formula = formula
     else:
         new_cell.value = value
-    if strict:
-        new_cell.strict = True
+    new_cell.strict = strict
     return new_cell
 
 def new_row(cells=None, id=None, parent_id=None, to_top=False, locked=False):
