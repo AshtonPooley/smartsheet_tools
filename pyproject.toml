@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smartsheet_tools"                       # from setup.py
-version = "0.0.5"                       # from setup.py
+version = "0.0.6"                       # from setup.py
 description = "A collection of convenience functions to aid with transitioning from simple-smartsheet to the SDK API and common tasks"
 readme = "README.md"
 requires-python = ">=3.9"               # matches classifiers (3.9–3.12)
