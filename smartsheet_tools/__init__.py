@@ -55,17 +55,20 @@ def standard_time_to_isoformat(st):
         return None
     return datetime_to_isoformat(datetime.strptime(st, "%m/%d/%Y"))
 
-def get_cached_column_type(column_id, sheet_obj):
+def get_cached_column_type(column_id, sheet_obj, prefill=False):
     if sheet_obj.id not in _COLUMN_TYPE_CACHE:
         _COLUMN_TYPE_CACHE[sheet_obj.id] = {}
         
     if column_id not in _COLUMN_TYPE_CACHE[sheet_obj.id]:
-        _COLUMN_TYPE_CACHE[sheet_obj.id][column_id] = str(sheet_obj.get_column(column_id).type)
+        if not prefill:
+            _COLUMN_TYPE_CACHE[sheet_obj.id][column_id] = str(sheet_obj.get_column(column_id).type)
+        else:
+            _COLUMN_TYPE_CACHE[sheet_obj.id][column_id] = prefill
     
     return _COLUMN_TYPE_CACHE[sheet_obj.id][column_id]
 
 def get_col_names_of_date_cols(sheet_obj):
-    return [c.title for c in sheet_obj.columns if get_cached_column_type(c.id, sheet_obj) in ("DATE", "DATETIME")]
+    return [c.title for c in sheet_obj.columns if get_cached_column_type(c.id, sheet_obj, prefill=c.type) in ("DATE", "DATETIME")]
 
 def brute_force_date_string(s, nonetype_if_fail=False):
     # attempt to parse a date string in common formats to ISO 8601
