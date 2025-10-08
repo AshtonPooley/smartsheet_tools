@@ -61,7 +61,11 @@ def get_cached_column_type(column_id, sheet_obj, prefill=False):
         
     if column_id not in _COLUMN_TYPE_CACHE[sheet_obj.id]:
         if not prefill:
-            _COLUMN_TYPE_CACHE[sheet_obj.id][column_id] = str(sheet_obj.get_column(column_id).type)
+            
+            # Value is not in there and no prefill, so look it up
+            for col in sheet_obj.columns:
+                _COLUMN_TYPE_CACHE[sheet_obj.id][column_id] = col.type
+
         else:
             _COLUMN_TYPE_CACHE[sheet_obj.id][column_id] = prefill
     
@@ -69,6 +73,9 @@ def get_cached_column_type(column_id, sheet_obj, prefill=False):
 
 def get_col_names_of_date_cols(sheet_obj):
     return [c.title for c in sheet_obj.columns if get_cached_column_type(c.id, sheet_obj, prefill=c.type) in ("DATE", "DATETIME")]
+
+def get_col_names_of_bool_cols(sheet_obj):
+    return [c.title for c in sheet_obj.columns if get_cached_column_type(c.id, sheet_obj, prefill=c.type) == "CHECKBOX"]
 
 def brute_force_date_string(s, nonetype_if_fail=False):
     # attempt to parse a date string in common formats to ISO 8601
@@ -91,16 +98,16 @@ def is_date_col(column_id, sheet_obj):
     column_type = get_cached_column_type(column_id, sheet_obj)
     return column_type in ("DATE", "DATETIME")
 
-def correct_date_format(isoformat_datetime, column_id, sheet_obj):
-    if isinstance(isoformat_datetime, datetime):
-        isoformat_datetime = datetime_to_isoformat(isoformat_datetime)
+def correct_date_format(value, column_id, sheet_obj, nonetype_if_fail=False):
+    if isinstance(value, datetime):
+        value = datetime_to_isoformat(value)
 
     column_type = get_cached_column_type(column_id, sheet_obj)
     if column_type == "DATE":
-        return isoformat_datetime.split("T",1)[0]
+        return value.split("T",1)[0]
     elif column_type == "DATETIME":
-        return isoformat_datetime
-    return None
+        return value
+    return None if nonetype_if_fail else value
 
 def new_cell(column_id=None, value=None, strict=False, formula=None):
     new_cell = Cell()
