@@ -166,7 +166,7 @@ def walk_sheet_names_from_workspace(smartsheet_client, workspace_id):
     for sheet in walk_workspace_for_sheets(smartsheet_client, workspace_id):
         yield sheet.name
 
-def safe_grab_sheet_by_name(name, smartsheet_client, max_tries=5, delay_seconds=15):
+def safe_grab_sheet_by_name(smartsheet_client, name, max_tries=5, delay_seconds=15):
     last_error = None
     for attempt in range(1, max_tries + 1):
         try:
