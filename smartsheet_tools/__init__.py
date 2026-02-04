@@ -1,6 +1,8 @@
 from datetime import datetime
+import time
 import re
-from smartsheet.models import Cell, Row, Folder, Sheet
+import warnings
+from smartsheet.models import Cell, Row, Folder, Sheet, Error
 from smartsheet.models import Column
 
 # Cache for column types to minimize API calls when correcting date formats
@@ -163,6 +165,27 @@ def walk_workspace_for_folders(smartsheet_client, workspace_id):
 def walk_sheet_names_from_workspace(smartsheet_client, workspace_id):
     for sheet in walk_workspace_for_sheets(smartsheet_client, workspace_id):
         yield sheet.name
+
+def safe_grab_sheet_by_name(name, smartsheet_client, max_tries=5, delay_seconds=15):
+    last_error = None
+    for attempt in range(1, max_tries + 1):
+        try:
+            result = smartsheet_client.Sheets.get_sheet_by_name(name)
+        except Exception as exc:
+            last_error = exc
+            result = None
+
+        if isinstance(result, Sheet):
+            return result
+
+        if isinstance(result, Error):
+            last_error = result
+
+        if attempt < max_tries:
+            warnings.warn(f"failed to grab sheet {name} trying again in {delay_seconds}s")
+            time.sleep(delay_seconds)
+
+    raise RuntimeError(f"failed to grab sheet {name} after {max_tries} tries") from (last_error if isinstance(last_error, Exception) else None)
         
 def new_column(column_type, title, index=None, id=None, options=None, symbol=None, primary=False, hidden=False, locked=False):
     new_column = Column()
