@@ -186,6 +186,36 @@ def safe_grab_sheet_by_name(smartsheet_client, name, max_tries=5, delay_seconds=
             time.sleep(delay_seconds)
 
     raise RuntimeError(f"failed to grab sheet {name} after {max_tries} tries") from (last_error if isinstance(last_error, Exception) else None)
+
+def sheet_exists(smartsheet_client, sheet_id=None, sheet_name=None, max_tries=3, delay_seconds=2):
+    if (sheet_id is None) == (sheet_name is None):
+        raise ValueError("Provide exactly one of sheet_id or sheet_name")
+
+    last_error = None
+    for attempt in range(1, max_tries + 1):
+        try:
+            if sheet_id is not None:
+                result = smartsheet_client.Sheets.get_sheet(sheet_id)
+            else:
+                result = smartsheet_client.Sheets.get_sheet_by_name(sheet_name)
+        except Exception as exc:
+            last_error = exc
+            result = None
+
+        if isinstance(result, Sheet):
+            return result
+
+        if result is False:
+            return None
+
+        if isinstance(result, Error):
+            last_error = result
+
+        if attempt < max_tries:
+            warnings.warn("error grabbing sheet; trying again")
+            time.sleep(delay_seconds)
+
+    raise RuntimeError("failed to grab sheet after retries") from (last_error if isinstance(last_error, Exception) else None)
         
 def new_column(column_type, title, index=None, id=None, options=None, symbol=None, primary=False, hidden=False, locked=False):
     new_column = Column()
