@@ -209,7 +209,7 @@ def sheet_exists(smartsheet_client, sheet_name, max_tries=3, delay_seconds=15):
             warnings.warn("error grabbing sheet; trying again")
             time.sleep(delay_seconds)
 
-    raise RuntimeError("failed to grab sheet after retries") from (last_error if isinstance(last_error, Exception) else None)
+    return None
         
 def new_column(column_type, title, index=None, id=None, options=None, symbol=None, primary=False, hidden=False, locked=False):
     new_column = Column()
