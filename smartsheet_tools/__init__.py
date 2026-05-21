@@ -369,6 +369,39 @@ def sheet_exists(smartsheet_client, sheet_name, max_tries=3, delay_seconds=15, f
 
     return None
         
+def safe_get_column_by_title(
+    smartsheet_client,
+    sheet_id,
+    column_title,
+    max_tries=3,
+    delay_seconds=15,
+    raise_error=True,
+):
+    last_error = None
+    for attempt in range(1, max_tries + 1):
+        try:
+            result = smartsheet_client.Sheets.get_column_by_title(sheet_id, column_title)
+        except Exception as exc:
+            last_error = exc
+            result = None
+
+        if isinstance(result, Column):
+            return result
+
+        if isinstance(result, Error):
+            last_error = result
+
+        if attempt < max_tries:
+            warnings.warn(f"failed to grab column {column_title!r} from sheet {sheet_id} trying again in {delay_seconds}s")
+            time.sleep(delay_seconds)
+
+    if raise_error:
+        raise RuntimeError(
+            f"failed to grab column {column_title!r} from sheet {sheet_id} after {max_tries} tries"
+        ) from (last_error if isinstance(last_error, Exception) else None)
+    return None
+
+
 def new_column(column_type, title, index=None, id=None, options=None, symbol=None, primary=False, hidden=False, locked=False):
     new_column = Column()
     
