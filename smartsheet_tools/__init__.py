@@ -144,28 +144,60 @@ def new_row(cells=None, id=None, parent_id=None, to_top=False, locked=False):
         new_row.locked = locked
     return new_row
 
+def _fetch_children(fetch, obj_id, what, max_tries=4, delay_seconds=10):
+    # get_folder_children / get_workspace_children return an Error object on
+    # failure (or raise) instead of a Result with .data -- accessing .data on
+    # that Error blows up with an opaque "'Error' object has no attribute
+    # 'data'" AttributeError. Folder/workspace listing is idempotent, and these
+    # calls occasionally hit a transient 500/503 or a 404 "Not Found" that
+    # self-heals (Smartsheet replication lag under load), so retry a few times
+    # before giving up and surface the real API error if we do.
+    last_error = None
+    for attempt in range(1, max_tries + 1):
+        result = None
+        try:
+            result = fetch(obj_id)
+        except Exception as exc:
+            last_error = exc
+        else:
+            if isinstance(result, Error):
+                last_error = result
+            else:
+                data = getattr(result, "data", None)
+                if data is not None:
+                    return data
+                last_error = RuntimeError(f"unexpected response {result!r}")
+
+        if attempt < max_tries:
+            warnings.warn(f"failed to list {what} (attempt {attempt}/{max_tries}); retrying in {delay_seconds}s: {last_error}")
+            time.sleep(delay_seconds)
+
+    raise RuntimeError(
+        f"failed to list {what} after {max_tries} tries: {last_error}"
+    ) from (last_error if isinstance(last_error, Exception) else None)
+
 def walk_folder_for_sheets(smartsheet_client, folder_id):
-    for item in smartsheet_client.Folders.get_folder_children(folder_id).data:
+    for item in _fetch_children(smartsheet_client.Folders.get_folder_children, folder_id, f"folder {folder_id} children"):
         if isinstance(item, Folder):
             yield from walk_folder_for_sheets(smartsheet_client, item.id)
         elif isinstance(item, Sheet):
             yield item
 
 def walk_workspace_for_sheets(smartsheet_client, workspace_id):
-    for item in smartsheet_client.Workspaces.get_workspace_children(workspace_id).data:
+    for item in _fetch_children(smartsheet_client.Workspaces.get_workspace_children, workspace_id, f"workspace {workspace_id} children"):
         if isinstance(item, Folder):
             yield from walk_folder_for_sheets(smartsheet_client, item.id)
         elif isinstance(item, Sheet):
             yield item
-            
+
 def walk_folder_for_folders(smartsheet_client, folder_id):
-    for item in smartsheet_client.Folders.get_folder_children(folder_id).data:
+    for item in _fetch_children(smartsheet_client.Folders.get_folder_children, folder_id, f"folder {folder_id} children"):
         if isinstance(item, Folder):
             yield item
             yield from walk_folder_for_folders(smartsheet_client, item.id)
-            
+
 def walk_workspace_for_folders(smartsheet_client, workspace_id):
-    for item in smartsheet_client.Workspaces.get_workspace_children(workspace_id).data:
+    for item in _fetch_children(smartsheet_client.Workspaces.get_workspace_children, workspace_id, f"workspace {workspace_id} children"):
         if isinstance(item, Folder):
             yield item
             yield from walk_folder_for_folders(smartsheet_client, item.id)
@@ -400,6 +432,146 @@ def safe_get_column_by_title(
             f"failed to grab column {column_title!r} from sheet {sheet_id} after {max_tries} tries"
         ) from (last_error if isinstance(last_error, Exception) else None)
     return None
+
+
+# API error codes where retrying cannot help -- the request itself is the
+# problem (bad data, missing value, full sheet, not found). Surface these
+# immediately instead of burning retries on them.
+_NON_RETRYABLE_ERROR_CODES = {
+    1006,   # not found
+    1012,   # required object attribute(s) missing (e.g. cell.value)
+    1057,   # column type does not support the supplied value
+    5536,   # CELL_VALUE_FAILS_VALIDATION (e.g. PICKLIST)
+    5636,   # reached the cell limit (legacy phrasing)
+    5732,   # reached the 500,000 cell limit
+}
+
+
+# Message fragments that mark a non-retryable error when the code can't be
+# extracted (e.g. the SDK raised an exception rather than returning an Error).
+_NON_RETRYABLE_ERROR_STRINGS = (
+    "did not conform to the strict requirements",  # 5536 PICKLIST / type validation
+    "required object attribute",                    # 1012 missing cell.value
+)
+
+
+def _is_non_retryable_error(error_obj):
+    text, codes = _collect_error_text_and_codes(error_obj)
+    if _NON_RETRYABLE_ERROR_CODES.intersection(codes):
+        return True
+    if any(s in text for s in _MAX_SHEET_LIMIT_STRINGS):  # cell/row limit phrases
+        return True
+    return any(s in text for s in _NON_RETRYABLE_ERROR_STRINGS)
+
+
+def _safe_row_op(op, sheet_id, rows, op_name, max_tries=4, delay_seconds=10, raise_error=True):
+    """Run a Smartsheet row mutation (add/update/delete_rows) with retries
+    through transient failures.
+
+    Two transient failure modes are handled:
+      - a raised exception: a 503 with an empty body crashes the SDK's
+        response .json() with JSONDecodeError before it can build an Error;
+        network blips raise too.
+      - a returned Error object: 500s (errorCode 4000/4004) come back as
+        Error results rather than raising.
+    Both are retried with a delay. Known data errors (cell limit, validation,
+    missing value, not found) are non-retryable -- they are raised (or returned
+    when raise_error=False) immediately since retrying cannot help.
+
+    On success returns the SDK Result object, so callers can use it exactly
+    like the raw smartsheet.Sheets.<op> return value.
+    """
+    last_error = None
+    for attempt in range(1, max_tries + 1):
+        result = None
+        try:
+            result = op(sheet_id, rows)
+        except Exception as exc:
+            last_error = exc
+            # The SDK may *raise* the API error (rather than return an Error
+            # object). Short-circuit non-retryable conditions here too instead
+            # of burning the full retry budget on something that can't succeed.
+            if _is_non_retryable_error(exc):
+                if raise_error:
+                    raise RuntimeError(f"{op_name} on sheet {sheet_id} failed (non-retryable): {exc}") from exc
+                return exc
+
+        if isinstance(result, Error):
+            if _is_non_retryable_error(result):
+                if raise_error:
+                    raise RuntimeError(f"{op_name} on sheet {sheet_id} failed (non-retryable): {result}")
+                return result
+            last_error = result
+        elif result is not None:
+            return result  # success Result object
+
+        if attempt < max_tries:
+            warnings.warn(f"{op_name} on sheet {sheet_id} failed (attempt {attempt}/{max_tries}); retrying in {delay_seconds}s: {last_error}")
+            time.sleep(delay_seconds)
+
+    if raise_error:
+        # Keep the original error text in the message -- downstream callers
+        # (e.g. QSOytd's cell-limit detection) string-match on it.
+        raise RuntimeError(
+            f"{op_name} on sheet {sheet_id} failed after {max_tries} tries: {last_error}"
+        ) from (last_error if isinstance(last_error, Exception) else None)
+    return last_error
+
+
+def safe_add_rows(smartsheet_client, sheet_id, rows, max_tries=4, delay_seconds=10, raise_error=True):
+    return _safe_row_op(smartsheet_client.Sheets.add_rows, sheet_id, rows, "add_rows",
+                        max_tries=max_tries, delay_seconds=delay_seconds, raise_error=raise_error)
+
+
+def safe_update_rows(smartsheet_client, sheet_id, rows, max_tries=4, delay_seconds=10, raise_error=True):
+    return _safe_row_op(smartsheet_client.Sheets.update_rows, sheet_id, rows, "update_rows",
+                        max_tries=max_tries, delay_seconds=delay_seconds, raise_error=raise_error)
+
+
+def safe_delete_rows(smartsheet_client, sheet_id, row_ids, max_tries=4, delay_seconds=10, raise_error=True):
+    return _safe_row_op(smartsheet_client.Sheets.delete_rows, sheet_id, row_ids, "delete_rows",
+                        max_tries=max_tries, delay_seconds=delay_seconds, raise_error=raise_error)
+
+
+def safe_sort_sheet(smartsheet_client, sheet_id, sort_specifier, max_tries=4, delay_seconds=10, raise_error=True):
+    """Sort a sheet with retries through transient failures.
+
+    Same transient failure modes as _safe_row_op: a 503 with an empty body
+    crashes the SDK's response .json() with JSONDecodeError before it can build
+    an Error object; transient 500s come back as Error results rather than
+    raising. Both are retried with a delay. On success returns the SDK Result
+    (the sorted Sheet), so callers that assign the return value keep working.
+    """
+    last_error = None
+    for attempt in range(1, max_tries + 1):
+        result = None
+        try:
+            result = smartsheet_client.Sheets.sort_sheet(sheet_id, sort_specifier)
+        except Exception as exc:
+            last_error = exc
+            if _is_non_retryable_error(exc):
+                if raise_error:
+                    raise RuntimeError(f"sort_sheet on sheet {sheet_id} failed (non-retryable): {exc}") from exc
+                return exc
+
+        if isinstance(result, Error):
+            if _is_non_retryable_error(result):
+                if raise_error:
+                    raise RuntimeError(f"sort_sheet on sheet {sheet_id} failed (non-retryable): {result}")
+                return result
+            last_error = result
+        elif result is not None:
+            return result  # success -- the sorted Sheet
+
+        if attempt < max_tries:
+            warnings.warn(f"sort_sheet on sheet {sheet_id} failed (attempt {attempt}/{max_tries}); retrying in {delay_seconds}s: {last_error}")
+            time.sleep(delay_seconds)
+
+    if raise_error:
+        raise RuntimeError(
+            f"sort_sheet on sheet {sheet_id} failed after {max_tries} tries: {last_error}"
+        ) from (last_error if isinstance(last_error, Exception) else None)
+    return last_error
 
 
 def new_column(column_type, title, index=None, id=None, options=None, symbol=None, primary=False, hidden=False, locked=False):
