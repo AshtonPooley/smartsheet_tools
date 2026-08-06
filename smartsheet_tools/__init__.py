@@ -9,6 +9,10 @@ from smartsheet.models import Column
 _COLUMN_TYPE_CACHE = {}
 _TITLE_TO_ID_CACHE = {}
 _ID_TO_INDEX_CACHE = {}
+# Per-sheet set of column ids that carry a Column Formula. Populated for free
+# from the already-fetched sheet (see get_formula_col_ids / safe_grab_sheet_by_name)
+# so the row wrappers can strip un-writable formula-column cells before a write.
+_FORMULA_COL_IDS_CACHE = {}
 _MAX_SHEET_LIMIT_ERROR_CODES = {5732}
 _MAX_SHEET_LIMIT_STRINGS = (
     "reached the cell limit",
@@ -80,6 +84,22 @@ def get_cached_column_type(column_id, sheet_obj, prefill=False):
             _COLUMN_TYPE_CACHE[sheet_obj.id][column_id] = prefill
     
     return _COLUMN_TYPE_CACHE[sheet_obj.id][column_id]
+
+def get_formula_col_ids(sheet_obj):
+    """Return the set of column ids on this sheet that carry a Column Formula.
+
+    Smartsheet rejects any written value for such a column with errorCode 1302,
+    which aborts the whole add/update batch (and is non-retryable). Computed once
+    per sheet id from the already-fetched sheet object -- no extra API call -- and
+    cached, so callers (and the safe row wrappers) can cheaply strip those cells
+    before writing. Returns an empty set for sheets with no formula columns.
+    """
+    sheet_id = sheet_obj.id
+    if sheet_id not in _FORMULA_COL_IDS_CACHE:
+        _FORMULA_COL_IDS_CACHE[sheet_id] = {
+            c.id for c in sheet_obj.columns if getattr(c, "formula", None)
+        }
+    return _FORMULA_COL_IDS_CACHE[sheet_id]
 
 def get_col_names_of_date_cols(sheet_obj):
     return [c.title for c in sheet_obj.columns if get_cached_column_type(c.id, sheet_obj, prefill=c.type) in ("DATE", "DATETIME")]
@@ -316,6 +336,7 @@ def safe_grab_sheet_by_name(
                     result = None
 
         if isinstance(result, Sheet):
+            get_formula_col_ids(result)  # cache formula-column ids for the row wrappers
             return result
 
         if isinstance(result, Error):
@@ -329,6 +350,7 @@ def safe_grab_sheet_by_name(
                     if _delete_last_row_of_sheet(smartsheet_client, name):
                         result = smartsheet_client.Sheets.get_sheet_by_name(name)
                         if isinstance(result, Sheet):
+                            get_formula_col_ids(result)  # cache formula-column ids for the row wrappers
                             return result
                         if isinstance(result, Error):
                             last_error = result
@@ -441,6 +463,7 @@ _NON_RETRYABLE_ERROR_CODES = {
     1006,   # not found
     1012,   # required object attribute(s) missing (e.g. cell.value)
     1057,   # column type does not support the supplied value
+    1302,   # cannot edit a cell in a Column-Formula column
     5536,   # CELL_VALUE_FAILS_VALIDATION (e.g. PICKLIST)
     5636,   # reached the cell limit (legacy phrasing)
     5732,   # reached the 500,000 cell limit
@@ -452,6 +475,7 @@ _NON_RETRYABLE_ERROR_CODES = {
 _NON_RETRYABLE_ERROR_STRINGS = (
     "did not conform to the strict requirements",  # 5536 PICKLIST / type validation
     "required object attribute",                    # 1012 missing cell.value
+    "cannot edit cells with column formula",        # 1302 formula-column write
 )
 
 
@@ -518,12 +542,52 @@ def _safe_row_op(op, sheet_id, rows, op_name, max_tries=4, delay_seconds=10, rai
     return last_error
 
 
+def _strip_formula_cells(sheet_id, rows):
+    """Drop cells that target a Column-Formula column from an add/update payload.
+
+    Smartsheet rejects any written value for a formula column (errorCode 1302),
+    which fails the whole batch. Uses the per-sheet formula-column cache that is
+    populated for free when the sheet is fetched (safe_grab_sheet_by_name /
+    get_formula_col_ids), so this is a single dict lookup and an immediate no-op
+    for sheets with no formula columns (the common case). A row left with no
+    cells is dropped (Smartsheet rejects a cell-less row); those cells were
+    un-writable anyway, so no real data is lost.
+    """
+    formula_ids = _FORMULA_COL_IDS_CACHE.get(sheet_id)
+    if not formula_ids:
+        return rows
+    cleaned = []
+    dropped = 0
+    for row in rows:
+        cells = getattr(row, "cells", None)
+        if not cells:
+            cleaned.append(row)
+            continue
+        kept = [c for c in cells if getattr(c, "column_id", None) not in formula_ids]
+        if len(kept) == len(cells):
+            cleaned.append(row)
+        elif kept:
+            row.cells = kept
+            cleaned.append(row)
+        else:
+            dropped += 1
+    if dropped:
+        warnings.warn(f"skipped {dropped} row(s) with only formula-column cells on sheet {sheet_id}")
+    return cleaned
+
+
 def safe_add_rows(smartsheet_client, sheet_id, rows, max_tries=4, delay_seconds=10, raise_error=True):
+    rows = _strip_formula_cells(sheet_id, rows)
+    if not rows:
+        return None
     return _safe_row_op(smartsheet_client.Sheets.add_rows, sheet_id, rows, "add_rows",
                         max_tries=max_tries, delay_seconds=delay_seconds, raise_error=raise_error)
 
 
 def safe_update_rows(smartsheet_client, sheet_id, rows, max_tries=4, delay_seconds=10, raise_error=True):
+    rows = _strip_formula_cells(sheet_id, rows)
+    if not rows:
+        return None
     return _safe_row_op(smartsheet_client.Sheets.update_rows, sheet_id, rows, "update_rows",
                         max_tries=max_tries, delay_seconds=delay_seconds, raise_error=raise_error)
 
